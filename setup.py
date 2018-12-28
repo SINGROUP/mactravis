@@ -2,8 +2,8 @@ import platform
 from setuptools import setup, find_packages, Extension
 
 cpp_extra_compile_args = ['-std=c++11']
-if platform.system() == "Darwin":
-    cpp_extra_compile_args.append('-mmacosx-version-min=10.9')
+# if platform.system() == "Darwin":
+    # cpp_extra_compile_args.append('-mmacosx-version-min=10.9')
 
 extensions = [
     # The ACSF C extension, wrapped with ctypes
