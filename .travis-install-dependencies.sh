@@ -6,4 +6,6 @@ pip install -r devrequirements.txt
 #cythonize dscribe/libmbtr/cmbtrwrapper.pyx
 
 python --version
+pkgutil --pkg-info=com.apple.pkg.CLTools_Executables
+pkgutil --pkg-info=com.apple.pkg.DeveloperToolsCLI
 pip install .
