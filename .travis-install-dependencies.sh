@@ -16,6 +16,6 @@ pip install -r devrequirements.txt
 
 #softwareupdate --list
 #softwareupdate -i "Command Line Tools (macOS High Sierra version 10.13) for Xcode-10.1"
-sudo softwareupdate -i --install -a
+softwareupdate -i --install -a
 
 pip install .
