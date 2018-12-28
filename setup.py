@@ -1,25 +1,41 @@
 from setuptools import setup, find_packages, Extension
 
 extensions = [
+    # The ACSF C extension, wrapped with ctypes
+    Extension(
+        "dscribe.libacsf.libacsf",
+        [
+            "dscribe/libacsf/acsf-utils.c",
+            "dscribe/libacsf/acsf-compute.c",
+        ],
+        include_dirs=["dscribe/libacsf"],
+        extra_compile_args=["-O3", "-std=c99"]
+    ),
     # The MBTR C++ extension, wrapped with cython
     Extension(
-        "test.libmbtr.cmbtrwrapper",
+        "dscribe.libmbtr.cmbtrwrapper",
         [
-            "test/libmbtr/cmbtrwrapper.cpp",
+            "dscribe/libmbtr/cmbtrwrapper.cpp",
         ],
-        include_dirs=["test/libmbtr"],
+        include_dirs=["dscribe/libmbtr"],
         extra_compile_args=['-std=c++11'],
     ),
 ]
 
 if __name__ == "__main__":
-    setup(name='test',
-        version='0.1.0',
+    setup(name='dscribe',
+        version='0.1.7',
         url="https://singroup.github.io/dscribe/",
         description='A Python package for creating feature transformations in applications of machine learning to materials science.',
         long_description='A Python package for creating feature transformations in applications of machine learning to materials science.',
         packages=find_packages(),
         install_requires=[
+            'numpy',
+            'scipy',
+            'ase',
+            'future',
+            'matplotlib',
+            'soaplite==0.14.7',
         ],
         include_package_data=True,  # This ensures that files defined in MANIFEST.in are included
         ext_modules=extensions,
