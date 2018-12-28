@@ -3,11 +3,11 @@ from setuptools import setup, find_packages, Extension
 extensions = [
     # The MBTR C++ extension, wrapped with cython
     Extension(
-        "dscribe.libmbtr.cmbtrwrapper",
+        "test.libmbtr.cmbtrwrapper",
         [
-            "dscribe/libmbtr/cmbtrwrapper.cpp",
+            "test/libmbtr/cmbtrwrapper.cpp",
         ],
-        include_dirs=["dscribe/libmbtr"],
+        include_dirs=["test/libmbtr"],
         extra_compile_args=['-std=c++11'],
     ),
 ]
