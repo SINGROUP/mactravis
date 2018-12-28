@@ -1,4 +1,9 @@
+import platform
 from setuptools import setup, find_packages, Extension
+
+cpp_extra_compile_args = ['-std=c++11'],
+if platform.system() == "Darwin":
+    cpp_extra_compile_args.append('-mmacosx-version-min=10.9')
 
 extensions = [
     # The ACSF C extension, wrapped with ctypes
@@ -17,8 +22,9 @@ extensions = [
         [
             "dscribe/libmbtr/cmbtrwrapper.cpp",
         ],
+        language='c++',
         include_dirs=["dscribe/libmbtr"],
-        extra_compile_args=['-std=c++11'],
+        extra_compile_args=cpp_extra_compile_args,
     ),
 ]
 
