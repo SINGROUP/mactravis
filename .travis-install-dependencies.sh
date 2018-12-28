@@ -6,14 +6,16 @@ pip install -r devrequirements.txt
 # will be compiled during package setup
 #cythonize dscribe/libmbtr/cmbtrwrapper.pyx
 
-python --version
-pkgutil --pkg-info=com.apple.pkg.CLTools_Executables
-pkgutil --pkg-info=com.apple.pkg.DeveloperToolsCLI
+#python --version
+#pkgutil --pkg-info=com.apple.pkg.CLTools_Executables
+#pkgutil --pkg-info=com.apple.pkg.DeveloperToolsCLI
 
-softwareupdate -i "Command Line Tools (macOS High Sierra version 10.13) for Xcode-10.1"
 
-pkgutil --pkg-info=com.apple.pkg.CLTools_Executables
-pkgutil --pkg-info=com.apple.pkg.DeveloperToolsCLI
+#pkgutil --pkg-info=com.apple.pkg.CLTools_Executables
+#pkgutil --pkg-info=com.apple.pkg.DeveloperToolsCLI
 
-softwareupdate --list
+#softwareupdate --list
+#softwareupdate -i "Command Line Tools (macOS High Sierra version 10.13) for Xcode-10.1"
+sudo softwareupdate -i --install -a
+
 pip install .

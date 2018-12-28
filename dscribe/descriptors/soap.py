@@ -261,7 +261,7 @@ class SOAP(Descriptor):
             soap_mat = soap_mat / np.linalg.norm(soap_mat, axis=1)[:, np.newaxis]
 
         # Make into a sparse array if requested
-        if self._sparse:
+        if self.sparse:
             soap_mat = coo_matrix(soap_mat)
 
         return soap_mat
