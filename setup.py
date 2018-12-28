@@ -13,6 +13,7 @@ extensions = [
             "dscribe/libacsf/acsf-utils.c",
             "dscribe/libacsf/acsf-compute.c",
         ],
+        language='c',
         include_dirs=["dscribe/libacsf"],
         extra_compile_args=["-O3", "-std=c99"]
     ),

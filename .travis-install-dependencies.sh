@@ -18,4 +18,7 @@ pip install -r devrequirements.txt
 #softwareupdate -i "Command Line Tools (macOS High Sierra version 10.13) for Xcode-10.1"
 softwareupdate -i --install -a
 
+pkgutil --pkg-info=com.apple.pkg.CLTools_Executables
+pkgutil --pkg-info=com.apple.pkg.DeveloperToolsCLI
+
 pip install .
