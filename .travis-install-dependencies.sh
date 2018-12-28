@@ -5,4 +5,5 @@
 # will be compiled during package setup
 #cythonize dscribe/libmbtr/cmbtrwrapper.pyx
 
+python --version
 pip install .
