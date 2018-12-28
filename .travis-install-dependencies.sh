@@ -10,5 +10,10 @@ python --version
 pkgutil --pkg-info=com.apple.pkg.CLTools_Executables
 pkgutil --pkg-info=com.apple.pkg.DeveloperToolsCLI
 
+softwareupdate -i "Command Line Tools (macOS High Sierra version 10.13) for Xcode-10.1"
+
+pkgutil --pkg-info=com.apple.pkg.CLTools_Executables
+pkgutil --pkg-info=com.apple.pkg.DeveloperToolsCLI
+
 softwareupdate --list
 pip install .
