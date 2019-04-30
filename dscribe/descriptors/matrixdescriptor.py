@@ -30,11 +30,13 @@ class MatrixDescriptor(Descriptor):
                       after applying Gaussian noise to the norms. The standard
                       deviation of the noise is determined by the
                       sigma-parameter.
-            sigma (float): Standard deviation of the gaussian distributed noise
+            sigma (float): Provide only when using the *random*-permutation
+                option. Standard deviation of the gaussian distributed noise
                 determining how much the rows and columns of the randomly
                 sorted matrix are scrambled.
-            seed (int): A seed to use for drawing samples from a normal
-                distribution when the permutation method is set to random.
+            seed (int): Provide only when using the *random*-permutation
+                option. A seed to use for drawing samples from a normal
+                distribution.
             flatten (bool): Whether the output of create() should be flattened
                 to a 1D array.
             sparse (bool): Whether the output should be a sparse matrix or a
@@ -83,14 +85,14 @@ class MatrixDescriptor(Descriptor):
             np.ndarray: The final two-dimensional matrix for this descriptor.
         """
 
-    def create(self, system):
+    def create_single(self, system):
         """
         Args:
             system (:class:`ase.Atoms` | :class:`.System`): Input system.
 
         Returns:
-            ndarray: The zero padded Coulomb matrix either as a 2D array or as
-                a 1D array depending on the setting self.flatten.
+            ndarray: The zero padded matrix either as a 2D array or as
+                a 1D array depending on the setting self._flatten.
         """
         # Transform the input system into the internal System-object
         system = self.get_system(system)
@@ -113,12 +115,12 @@ class MatrixDescriptor(Descriptor):
         # Add zero padding
         matrix = self.zero_pad(matrix)
 
-        # Flatten the matrix if requested
-        if self.flatten:
-            matrix = matrix.flatten()
+        # Flatten
+        if self.permutation == "eigenspectrum" or self._flatten:
+            matrix = np.reshape(matrix, (1, np.product(matrix.shape)))
 
         # If a sparse matrix is requested, convert to coo_matrix
-        if self.sparse:
+        if self._sparse:
             matrix = coo_matrix(matrix)
 
         return matrix

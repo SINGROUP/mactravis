@@ -1,5 +1,6 @@
-from __future__ import absolute_import, division, print_function
-from builtins import super
+# -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
+from builtins import (bytes, str, open, super, range, zip, round, input, int, pow, object)
 import math
 import numpy as np
 
@@ -7,12 +8,11 @@ from scipy.spatial.distance import cdist
 from scipy.sparse import lil_matrix, coo_matrix
 from scipy.special import erf
 
+from ase import Atoms
+
 from dscribe.core import System
 from dscribe.descriptors import Descriptor
-
-from dscribe.libmbtr.cmbtrwrapper import CMBTRWrapper
-
-from ase.visualize import view
+from dscribe.libmbtr.mbtrwrapper import MBTRWrapper
 
 
 class MBTR(Descriptor):
@@ -54,11 +54,12 @@ class MBTR(Descriptor):
 
     def __init__(
             self,
-            atomic_numbers,
             k,
             periodic,
             grid=None,
             weighting=None,
+            species=None,
+            atomic_numbers=None,
             normalize_by_volume=False,
             normalize_gaussians=True,
             flatten=True,
@@ -66,14 +67,6 @@ class MBTR(Descriptor):
             ):
         """
         Args:
-            atomic_numbers (iterable): A list of the atomic numbers that should
-                be taken into account in the descriptor. Notice that this is
-                not the atomic numbers that are present for an individual
-                system, but should contain all the elements that are ever going
-                to be encountered when creating the descriptors for a set of
-                systems. Keeping the number of handled elements as low as
-                possible is preferable, especially if a dense representation
-                (e.g. numpy array) is needed as an output.
             k (int or iterable): The interaction term to consider from 1 to 3.
                 Also multiple terms can be created at once by providing an
                 iterable of integers. The size of the final output and the time
@@ -136,6 +129,17 @@ class MBTR(Descriptor):
                 * :math:`k=2`: :math:`x` = Distance between A->B
                 * :math:`k=3`: :math:`x` = Distance from A->B->C->A.
 
+            species (iterable): The chemical species as a list of atomic
+                numbers or as a list of chemical symbols. Notice that this is not
+                the atomic numbers that are present for an individual system, but
+                should contain all the elements that are ever going to be
+                encountered when creating the descriptors for a set of systems.
+                Keeping the number of chemical speices as low as possible is
+                preferable.
+            atomic_numbers (iterable): A list of the atomic numbers that should
+                be taken into account in the descriptor. Deprecated in favour of
+                the species-parameters, but provided for
+                backwards-compatibility.
             normalize_by_volume (bool): Determines whether the output vectors are
                 normalized by the cell volume. Defaults to False.
             normalize_gaussians (bool): Determines whether the gaussians are
@@ -144,11 +148,11 @@ class MBTR(Descriptor):
                 :math:`e^-(x-\mu)^2/2\sigma^2`
             flatten (bool): Whether the output of create() should be flattened
                 to a 1D array. If False, a dictionary of the different tensors
-                is provided.
+                is provided, containing the values under keys: "k1", "k2", and
+                "k3":
             sparse (bool): Whether the output should be a sparse matrix or a
                 dense numpy array.
         """
-
         if sparse and not flatten:
             raise ValueError(
                 "Cannot provide a non-flattened output in sparse output because"
@@ -162,7 +166,11 @@ class MBTR(Descriptor):
             self.k = [k]
         else:
             self.k = k
-        self.atomic_numbers = atomic_numbers
+
+        # Setup the involved chemical species
+        species = self.get_species_definition(species, atomic_numbers)
+        self.species = species
+
         self.grid = grid
         self.weighting = weighting
         self.periodic = periodic
@@ -184,23 +192,9 @@ class MBTR(Descriptor):
         self._axis_k2 = None
         self._axis_k3 = None
 
-    def initialize_atomic_numbers(self, atomic_numbers):
-        """Used to initialize the list of atomic numbers.
-        """
-        # Check that atomic numbers are valid.  The given atomic numbers are
-        # first made into a set to remove duplicates, and then made into list
-        # for enabling ordering.
-        new_atomic_numbers = list(set(atomic_numbers))
-        if (np.array(new_atomic_numbers) <= 0).any():
-            raise ValueError(
-                "Non-positive atomic numbers not allowed."
-            )
-        self.atomic_numbers = new_atomic_numbers
-
     def update(self):
         """Checks and updates variables in mbtr class.
         """
-
         # Check K value
         supported_k = set(range(1, 4))
         try:
@@ -263,22 +257,6 @@ class MBTR(Descriptor):
         if self.grid is not None:
             self.check_grid(self.grid)
 
-        self.n_elements = None  # Number of elements for MBTR
-        self.initialize_atomic_numbers(self.atomic_numbers)
-        self.atomic_number_to_index = {}  # a
-        self.index_to_atomic_number = {}
-
-        # Sort the atomic numbers. This is not needed but makes things maybe a
-        # bit easier to debug.
-        self.atomic_numbers.sort()
-        for i_atom, atomic_number in enumerate(self.atomic_numbers):
-            self.atomic_number_to_index[atomic_number] = i_atom
-            self.index_to_atomic_number[i_atom] = atomic_number
-        self.n_elements = len(self.atomic_numbers)
-
-        self.max_atomic_number = max(self.atomic_numbers)
-        self.min_atomic_number = min(self.atomic_numbers)
-
     def check_grid(self, grid):
         """Used to ensure that the given grid settings are valid.
         """
@@ -300,7 +278,47 @@ class MBTR(Descriptor):
                     assert info["min"] < info["max"], \
                         "The min value should be smaller than the max values"
 
-    def create(self, system):
+    def create(self, system, n_jobs=1, verbose=False):
+        """Return MBTR output for the given systems.
+
+        Args:
+            system (single or multiple class:`ase.Atoms`): One or many atomic structures.
+            n_jobs (int): Number of parallel jobs to instantiate. Parallellizes
+                the calculation across samples. Defaults to serial calculation
+                with n_jobs=1.
+            verbose(bool): Controls whether to print the progress of each job
+                into to the console.
+
+        Returns:
+            np.ndarray | scipy.sparse.csr_matrix | list: Coulomb matrix for the
+            given systems. The return type depends on the 'sparse' and
+            'flatten'-attributes. For flattened output a single numpy array or
+            sparse scipy.csr_matrix is returned. The first dimension is
+            determined by the amount of systems. If the output is not
+            flattened, a simple python list is returned.
+        """
+        # If single system given, skip the parallelization
+        if isinstance(system, (Atoms, System)):
+            return self.create_single(system)
+
+        # Combine input arguments
+        inp = [(i_sys,) for i_sys in system]
+
+        # Here we precalculate the size for each job to preallocate memory.
+        if self._flatten:
+            n_samples = len(system)
+            k, m = divmod(n_samples, n_jobs)
+            jobs = (inp[i * k + min(i, m):(i + 1) * k + min(i + 1, m)] for i in range(n_jobs))
+            output_sizes = [len(job) for job in jobs]
+        else:
+            output_sizes = None
+
+        # Create in parallel
+        output = self.create_parallel(inp, self.create_single, n_jobs, output_sizes, verbose=verbose)
+
+        return output
+
+    def create_single(self, system):
         """Return the many-body tensor representation for the given system.
 
         Args:
@@ -321,6 +339,33 @@ class MBTR(Descriptor):
         self.initialize_scalars(system)
 
         return self.create_with_grid()
+
+    @property
+    def species(self):
+        return self._species
+
+    @species.setter
+    def species(self, value):
+        """Used to check the validity of given atomic numbers and to initialize
+        the C-memory layout for them.
+
+        Args:
+            value(iterable): Chemical species either as a list of atomic
+                numbers or list of chemical symbols.
+        """
+        # The species are stored as atomic numbers for internal use.
+        self._set_species(value)
+
+        # Setup mappings between atom indices and types together with some
+        # statistics
+        self.atomic_number_to_index = {}
+        self.index_to_atomic_number = {}
+        for i_atom, atomic_number in enumerate(self._atomic_numbers):
+            self.atomic_number_to_index[atomic_number] = i_atom
+            self.index_to_atomic_number[i_atom] = atomic_number
+        self.n_elements = len(self._atomic_numbers)
+        self.max_atomic_number = max(self._atomic_numbers)
+        self.min_atomic_number = min(self._atomic_numbers)
 
     def create_with_grid(self, grid=None):
         """Used to recalculate MBTR for an already seen system but with
@@ -357,7 +402,7 @@ class MBTR(Descriptor):
                 mbtr[key] = norm_value
 
         # Flatten output if requested
-        if self.flatten:
+        if self._flatten:
             length = 0
 
             datas = []
@@ -378,7 +423,7 @@ class MBTR(Descriptor):
             mbtr = coo_matrix((datas, (rows, cols)), shape=[1, length], dtype=np.float32)
 
             # Make into a dense array if requested
-            if not self.sparse:
+            if not self._sparse:
                 mbtr = mbtr.toarray()
 
         return mbtr
@@ -405,18 +450,10 @@ class MBTR(Descriptor):
             self._interaction_limit = 1
         else:
             self._interaction_limit = len(system)
-        present_element_numbers = set(system.numbers)
-        self.present_indices = set()
-        for number in present_element_numbers:
-            try:
-                index = self.atomic_number_to_index[number]
-            except KeyError:
-                raise KeyError(
-                    "The given systems contains atomic element {} that has not "
-                    "been declared in 'atomic_numbers' given in the class "
-                    "constructor.".format(number)
-                )
-            self.present_indices.add(index)
+
+        # Check that the system does not have elements that are not in the list
+        # of atomic numbers
+        self.check_atomic_numbers(system.get_atomic_numbers())
 
         if 1 in self.k:
             self.k1_geoms_and_weights(system)
@@ -663,7 +700,7 @@ class MBTR(Descriptor):
         """
         if self._k1_geoms is None or self._k1_weights is None:
 
-            cmbtr = CMBTRWrapper(
+            cmbtr = MBTRWrapper(
                 system.get_positions(),
                 system.get_atomic_numbers(),
                 self.atomic_number_to_index,
@@ -691,7 +728,7 @@ class MBTR(Descriptor):
         """
         if self._k2_geoms is None or self._k2_weights is None:
 
-            cmbtr = CMBTRWrapper(
+            cmbtr = MBTRWrapper(
                 system.get_positions(),
                 system.get_atomic_numbers(),
                 self.atomic_number_to_index,
@@ -734,7 +771,7 @@ class MBTR(Descriptor):
         if self._k3_geoms is None or self._k2_weights is None:
 
             # Calculate the angles with the C++ implementation
-            cmbtr = CMBTRWrapper(
+            cmbtr = MBTRWrapper(
                 system.get_positions(),
                 system.get_atomic_numbers(),
                 self.atomic_number_to_index,
@@ -779,7 +816,7 @@ class MBTR(Descriptor):
         k1_geoms, k1_weights = self._k1_geoms, self._k1_weights
 
         # Depending of flattening, use either a sparse matrix or a dense one.
-        if self.flatten:
+        if self._flatten:
             k1 = lil_matrix((1, n_elem*n), dtype=np.float32)
         else:
             k1 = np.zeros((n_elem, n), dtype=np.float32)
@@ -793,7 +830,7 @@ class MBTR(Descriptor):
             # Broaden with a gaussian
             gaussian_sum = self.gaussian_sum(geoms, weights, settings)
 
-            if self.flatten:
+            if self._flatten:
                 start = i*n
                 end = (i+1)*n
                 k1[0, start:end] = gaussian_sum
@@ -821,7 +858,7 @@ class MBTR(Descriptor):
         n_elem = self.n_elements
 
         # Depending of flattening, use either a sparse matrix or a dense one.
-        if self.flatten:
+        if self._flatten:
             k2 = lil_matrix(
                 (1, int(n_elem*(n_elem+1)/2*n)), dtype=np.float32)
         else:
@@ -842,7 +879,7 @@ class MBTR(Descriptor):
             # Broaden with a gaussian
             gaussian_sum = self.gaussian_sum(geoms, weights, settings)
 
-            if self.flatten:
+            if self._flatten:
                 start = m*n
                 end = (m + 1)*n
                 k2[0, start:end] = gaussian_sum
@@ -870,7 +907,7 @@ class MBTR(Descriptor):
         n_elem = self.n_elements
 
         # Depending of flattening, use either a sparse matrix or a dense one.
-        if self.flatten:
+        if self._flatten:
             k3 = lil_matrix(
                 (1, int(n_elem*n_elem*(n_elem+1)/2*n)), dtype=np.float32
             )
@@ -891,15 +928,10 @@ class MBTR(Descriptor):
             geoms = np.array(k3_geoms[key])
             weights = np.array(k3_weights[key])
 
-            # is_geom_nan = np.isnan(geoms).any()
-            # if is_geom_nan:
-                # print(geoms)
-                # print("Here")
-
             # Broaden with a gaussian
             gaussian_sum = self.gaussian_sum(geoms, weights, settings)
 
-            if self.flatten:
+            if self._flatten:
                 start = m*n
                 end = (m+1)*n
                 k3[0, start:end] = gaussian_sum

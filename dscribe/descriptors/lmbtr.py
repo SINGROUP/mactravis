@@ -55,25 +55,19 @@ class LMBTR(MBTR):
 
     def __init__(
             self,
-            atomic_numbers,
             k,
             periodic,
             grid,
             virtual_positions,
             weighting=None,
+            species=None,
+            atomic_numbers=None,
             normalize_gaussians=True,
             flatten=True,
             sparse=True,
             ):
         """
         Args:
-            atomic_numbers (iterable): A list of the atomic numbers that should
-                be taken into account in the descriptor. Notice that this is
-                not the atomic numbers that are present for an individual
-                system, but should contain all the elements that are ever going
-                to be encountered when creating the descriptors for a set of
-                systems.  Keeping the number of handled elements as low as
-                possible is preferable.
             k (set or list): The interaction terms to consider from 1 to 3. The
                 size of the final output and the time taken in creating this
                 descriptor is exponentially dependent on this value.
@@ -143,6 +137,17 @@ class LMBTR(MBTR):
                     k=2: x = Distance between A->B
                     k=3: x = Distance from A->B->C->A.
 
+            species (iterable): The chemical species as a list of atomic
+                numbers or as a list of chemical symbols. Notice that this is not
+                the atomic numbers that are present for an individual system, but
+                should contain all the elements that are ever going to be
+                encountered when creating the descriptors for a set of systems.
+                Keeping the number of chemical speices as low as possible is
+                preferable.
+            atomic_numbers (iterable): A list of the atomic numbers that should
+                be taken into account in the descriptor. Deprecated in favour of
+                the species-parameters, but provided for
+                backwards-compatibility.
             normalize_gaussians (bool): Determines whether the gaussians are
                 normalized to an area of 1. If false, the normalization factor
                 is dropped and the gaussians have the form.
@@ -158,11 +163,12 @@ class LMBTR(MBTR):
             is not specified for periodic systems.
         """
         super().__init__(
-            atomic_numbers,
-            k,
-            periodic,
-            grid,
-            weighting,
+            k=k,
+            periodic=periodic,
+            grid=grid,
+            weighting=weighting,
+            species=species,
+            atomic_numbers=atomic_numbers,
             normalize_by_volume=False,
             normalize_gaussians=normalize_gaussians,
             flatten=flatten,
@@ -172,10 +178,75 @@ class LMBTR(MBTR):
         self._is_local = True
         self._interaction_limit = 1
 
-    def create(
+    def create(self, system, positions=None, scaled_positions=False, n_jobs=1, verbose=False):
+        """Return the LMBTR output for the given systems and given positions.
+
+        Args:
+            system (single or multiple class:`ase.Atoms`): One or many atomic
+                structures.
+            positions (list): Positions where to calculate LMBTR. Can be
+                provided as cartesian positions or atomic indices. If no
+                positions are defined, the LMBTR output will be created for all
+                atoms in the system. When calculating LMBTR for multiple
+                systems, provide the positions as a list for each system.
+            scaled_positions (boolean): Controls whether the given positions
+                are given as scaled to the unit cell basis or not. Scaled
+                positions require that a cell is available for the system.
+                Provide either one value or a list of values for each system.
+            n_jobs (int): Number of parallel jobs to instantiate. Parallellizes
+                the calculation across samples. Defaults to serial calculation
+                with n_jobs=1.
+            verbose(bool): Controls whether to print the progress of each job
+                into to the console.
+
+        Returns:
+            np.ndarray | scipy.sparse.csr_matrix: The LMBTR output for the given
+            systems and positions. The return type depends on the
+            'sparse'-attribute. The first dimension is determined by the amount
+            of positions and systems and the second dimension is determined by
+            the get_number_of_features()-function.
+        """
+        # If single system given, skip the parallelization
+        if isinstance(system, (Atoms, System)):
+            return self.create_single(system, positions, scaled_positions)
+
+        # Combine input arguments
+        n_samples = len(system)
+        if np.ndim(scaled_positions) == 0:
+            scaled_positions = n_samples*[scaled_positions]
+        inp = [(i_sys, i_pos, i_scaled) for i_sys, i_pos, i_scaled in zip(system, positions, scaled_positions)]
+
+        # For ACSF the output size for each job depends on the exact arguments.
+        # Here we precalculate the size for each job to preallocate memory and
+        # make the process faster.
+        n_samples = len(system)
+        k, m = divmod(n_samples, n_jobs)
+        jobs = (inp[i * k + min(i, m):(i + 1) * k + min(i + 1, m)] for i in range(n_jobs))
+        output_sizes = []
+        for i_job in jobs:
+            n_desc = 0
+            if positions is None:
+                n_desc = 0
+                for job in i_job:
+                    n_desc += len(job[0])
+            else:
+                n_desc = 0
+                for i_sample, i_pos, i_scale in i_job:
+                    if i_pos is not None:
+                        n_desc += len(i_pos)
+                    else:
+                        n_desc += len(i_sample)
+            output_sizes.append(n_desc)
+
+        # Create in parallel
+        output = self.create_parallel(inp, self.create_single, n_jobs, output_sizes, verbose=verbose)
+
+        return output
+
+    def create_single(
             self,
             system,
-            positions,
+            positions=None,
             scaled_positions=False
             ):
         """Return the local many-body tensor representation for the given
@@ -198,10 +269,15 @@ class LMBTR(MBTR):
         # Transform the input system into the internal System-object
         system = self.get_system(system)
 
+        # Check that the system does not have elements that are not in the list
+        # of atomic numbers
+        atomic_number_set = set(system.get_atomic_numbers())
+        self.check_atomic_numbers(atomic_number_set)
+
         # Ensure that the atomic number 0 is not present in the system
-        if 0 in system.get_atomic_numbers():
+        if 0 in atomic_number_set:
             raise ValueError(
-                "Please do not use the atomic number 0 in local MBTR "
+                "Please do not use the atomic number 0 in local MBTR"
                 ", as it is reserved for the ghost atom used by the "
                 "implementation."
             )
@@ -265,13 +341,13 @@ class LMBTR(MBTR):
         # whether a spares of dense result is requested.
         n_pos = len(positions)
         n_features = self.get_number_of_features()
-        if self.flatten and self.sparse:
+        if self._flatten and self._sparse:
             data = []
             cols = []
             rows = []
             row_offset = 0
             for i, i_system in enumerate(systems):
-                i_res = super().create(i_system)
+                i_res = super().create_single(i_system)
                 data.append(i_res.data)
                 rows.append(i_res.row + row_offset)
                 cols.append(i_res.col)
@@ -285,29 +361,50 @@ class LMBTR(MBTR):
             cols = np.concatenate(cols)
             desc = coo_matrix((data, (rows, cols)), shape=(n_pos, n_features), dtype=np.float32)
         else:
-            if self.flatten and not self.sparse:
+            if self._flatten and not self._sparse:
                 desc = np.empty((n_pos, n_features), dtype=np.float32)
             else:
                 desc = np.empty((n_pos), dtype='object')
             for i, i_system in enumerate(systems):
-                i_desc = super().create(i_system)
+                i_desc = super().create_single(i_system)
                 desc[i] = i_desc
 
         return desc
 
-    def initialize_atomic_numbers(self, atomic_numbers):
-        """Used to initialize the list of atomic numbers.
-        """
-        # Check that atomic numbers are valid.  The given atomic numbers are
-        # first made into a set to remove duplicates, and then made into list
-        # for enabling ordering.
-        new_atomic_numbers = list(set(atomic_numbers))
-        if (np.array(new_atomic_numbers) < 0).any():
-            raise ValueError(
-                "Negative atomic numbers not allowed."
-            )
-        self.atomic_numbers = new_atomic_numbers
+    @property
+    def species(self):
+        return self._species
 
-        # The ghost atoms will have atomic number 0
-        if 0 not in self.atomic_numbers:
-            self.atomic_numbers.append(0)
+    @species.setter
+    def species(self, value):
+        """Used to check the validity of given atomic numbers and to initialize
+        the C-memory layout for them.
+
+        Args:
+            value(iterable): Chemical species either as a list of atomic
+                numbers or list of chemical symbols.
+        """
+        # The species are stored as atomic numbers for internal use.
+        self._set_species(value)
+
+        # The atomic number 0 is reserved for ghost atoms in this
+        # implementation.
+        if 0 in self._atomic_number_set:
+            raise ValueError(
+                "The atomic number 0 is reserved for the ghost atoms in this "
+                "implementation."
+            )
+        self._atomic_number_set.add(0)
+        indices = np.searchsorted(self._atomic_numbers, 0)
+        self._atomic_numbers = np.insert(self._atomic_numbers, indices, 0)
+
+        # Setup mappings between atom indices and types together with some
+        # statistics
+        self.atomic_number_to_index = {}
+        self.index_to_atomic_number = {}
+        for i_atom, atomic_number in enumerate(self._atomic_numbers):
+            self.atomic_number_to_index[atomic_number] = i_atom
+            self.index_to_atomic_number[i_atom] = atomic_number
+        self.n_elements = len(self._atomic_numbers)
+        self.max_atomic_number = max(self._atomic_numbers)
+        self.min_atomic_number = min(self._atomic_numbers)
