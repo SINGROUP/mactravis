@@ -1,4 +1,7 @@
 # Development dependencies
+pkgutil --pkg-info=com.apple.pkg.CLTools_Executables
+pkgutil --pkg-info=com.apple.pkg.DeveloperToolsCLI
+
 pip install numpy==1.15.4
 #pip install -r devrequirements.txt
 
@@ -7,8 +10,6 @@ pip install numpy==1.15.4
 #cythonize dscribe/libmbtr/cmbtrwrapper.pyx
 
 #python --version
-#pkgutil --pkg-info=com.apple.pkg.CLTools_Executables
-#pkgutil --pkg-info=com.apple.pkg.DeveloperToolsCLI
 
 
 #pkgutil --pkg-info=com.apple.pkg.CLTools_Executables
@@ -16,8 +17,8 @@ pip install numpy==1.15.4
 
 #softwareupdate --list
 #softwareupdate -i "Command Line Tools (macOS High Sierra version 10.13) for Xcode-10.1"
-#softwareupdate -i --install -a
 
+softwareupdate -i --install -a
 pkgutil --pkg-info=com.apple.pkg.CLTools_Executables
 pkgutil --pkg-info=com.apple.pkg.DeveloperToolsCLI
 
