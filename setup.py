@@ -4,8 +4,8 @@ from setuptools import setup, find_packages, Extension
 # On mac we need to specify that a minimum target version to get the correct
 # c++11 compilation flags (libc++) in place
 cpp_extra_compile_args = ['-std=c++11']
-# if platform.system() == "Darwin":
-    # cpp_extra_compile_args.append('-mmacosx-version-min=10.9')
+if platform.system() == "Darwin":
+    cpp_extra_compile_args.append('-stdlib=libc++')
 
 extensions = [
     # The ACSF C++ extension, wrapped with cython
